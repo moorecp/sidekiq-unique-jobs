@@ -97,9 +97,12 @@ describe "Client" do
         :args => [1, 2],
         :jid => 'asdf1234'
       }
-      payload[:unique_hash] = SidekiqUniqueJobs::PayloadHelper.get_payload(payload[:class], payload[:queue], payload[:args])
+      payload_hash = SidekiqUniqueJobs::PayloadHelper.get_payload(payload[:class], payload[:queue], payload[:args])
+      payload[:unique_hash] = payload_hash
       expect(Sidekiq::RetrySet.new.count).to eq(0)
-      Sidekiq.redis {|c| c.zadd('retry', 0, Sidekiq.dump_json(payload))}
+      Sidekiq.redis do |c|
+        c.zadd('retry', 0, Sidekiq.dump_json(payload.merge({'failed_at' => Time.now.to_f})))
+      end
       expect(Sidekiq::RetrySet.new.count).to eq(1)
       Sidekiq::Client.push('class' => QueueWorker, 'queue' => 'customqueue',  'args' => [1, 2])
       result = Sidekiq.redis {|c| c.llen("queue:customqueue") }
@@ -117,11 +120,21 @@ describe "Client" do
         'args' => [1, 2],
         'jid' => 'asdf1234'
       }
-      payload['unique_hash'] = SidekiqUniqueJobs::PayloadHelper.get_payload(payload['class'], payload['queue'], payload['args'])
+      payload_hash = SidekiqUniqueJobs::PayloadHelper.get_payload(payload['class'], payload['queue'], payload['args'])
+      payload['unique_hash'] = payload_hash
       expect(Sidekiq::RetrySet.new.count).to eq(0)
-      Sidekiq.redis {|c| c.zadd('retry', 0, Sidekiq.dump_json(payload))}
+      Sidekiq.redis do |c|
+        c.zadd('retry', 5, Sidekiq.dump_json(payload.merge({'failed_at' => Time.now.to_f})))
+      end
       expect(Sidekiq::RetrySet.new.count).to eq(1)
-      Sidekiq::Client.push(payload)
+      Sidekiq.redis do |c|
+        message = c.zscan('retry', 0).last[0][0]
+        if c.zrem('retry', message)
+          Sidekiq::Client.push(Sidekiq.load_json(message))
+        else
+          raise "Oops"
+        end
+      end
       result = Sidekiq.redis {|c| c.llen("queue:customqueue") }
       expect(result).to eq 1
     end
@@ -139,9 +152,12 @@ describe "Client" do
           :class => 'QueueWorker',
           :args => [1, 2]
         }
-        payload[:unique_hash] = SidekiqUniqueJobs::PayloadHelper.get_payload(payload[:class], payload[:queue], payload[:args])
+        payload_hash = SidekiqUniqueJobs::PayloadHelper.get_payload(payload[:class], payload[:queue], payload[:args])
+        payload[:unique_hash] = payload_hash
         expect(Sidekiq::RetrySet.new.count).to eq(0)
-        Sidekiq.redis {|c| c.zadd('retry', 0, Sidekiq.dump_json(payload))}
+        Sidekiq.redis do |c|
+          c.zadd('retry', 0, Sidekiq.dump_json(payload.merge({'failed_at' => Time.now.to_f})))
+        end
         expect(Sidekiq::RetrySet.new.count).to eq(1)
         Sidekiq::Client.push('class' => QueueWorker, 'queue' => 'customqueue',  'args' => [1, 2])
         result = Sidekiq.redis {|c| c.llen("queue:customqueue") }

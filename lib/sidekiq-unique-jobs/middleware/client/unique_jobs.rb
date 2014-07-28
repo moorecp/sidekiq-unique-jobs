@@ -40,33 +40,36 @@ module SidekiqUniqueJobs
           unique = false
           conn.watch(payload_hash)
 
-          if conn.get(payload_hash).to_i == 1 ||
-            (conn.get(payload_hash).to_i == 2 && item['at'])
+          if (conn.get(payload_hash).to_i == 1 ||
+              (conn.get(payload_hash).to_i == 2 && item['at'])) &&
+              !is_retried_version?
             # if the job is already queued, or is already scheduled and
             # we're trying to schedule again, abort
             conn.unwatch
           else
             # if the job was previously scheduled and is now being queued,
             # or we've never seen it before
-            expires_at = unique_job_expiration || SidekiqUniqueJobs::Config.default_expiration
-            expires_at = ((Time.at(item['at']) - Time.now.utc) + expires_at).to_i if item['at']
+            if !check_retry_queue? || (check_retry_queue? && (!has_retried_version? || is_retried_version?))
+              expires_at = unique_job_expiration || SidekiqUniqueJobs::Config.default_expiration
+              expires_at = ((Time.at(item['at']) - Time.now.utc) + expires_at).to_i if item['at']
 
-            unique = conn.multi do
-              # set value of 2 for scheduled jobs, 1 for queued jobs.
-              conn.setex(payload_hash, expires_at, item['at'] ? 2 : 1)
+              unique = conn.multi do
+                # set value of 2 for scheduled jobs, 1 for queued jobs.
+                conn.setex(payload_hash, expires_at, item['at'] ? 2 : 1)
+              end
             end
           end
-          unique && !is_retried?
+          unique
         end
 
-        def is_retried?
-          return false unless check_retry_queue?
-
+        def has_retried_version?
           retries = Sidekiq::RetrySet.new
           unique_hash = payload_hash
+          retries.any? { |job| job['unique_hash'] == unique_hash }
+        end
 
-          # We need to let the actual job in the retry queue get enqueued again itself, so we need to also look at the Job ID. If the job id matches, this is Sidekiq trying to enqueue a job from the RetrySet, therefore, we only want to match on jobs with a different 'jid'
-          retries.any? { |job| job['unique_hash'] == unique_hash && job['jid'] != item['jid'] }
+        def is_retried_version?
+          !!retried_version
         end
 
         protected
@@ -109,6 +112,14 @@ module SidekiqUniqueJobs
         def check_retry_queue?
           worker_option = worker_class.get_sidekiq_options['unique_job_checks_retry_queue'] || item['unique_job_checks_retry_queue']
           !worker_option.nil? ? worker_option : SidekiqUniqueJobs::Config.unique_job_checks_retry_queue
+        end
+
+        def retried_version
+          return nil unless check_retry_queue?
+
+          retries = Sidekiq::RetrySet.new
+          unique_hash = payload_hash
+          retries.find { |job| job['unique_hash'] == unique_hash && job['jid'] == item['jid'] } || (item['failed_at'] ? item : nil)
         end
       end
     end
