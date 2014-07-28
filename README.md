@@ -92,6 +92,29 @@ class UniqueJobWithFilterMethod
 end
 ```
 
+### Unique Jobs and Failures
+
+By default, if an exception is generated during the execution of job, Sidekiq will place the job in the `retry` queue. An attempt to enqueue a new copy of a unique job will succeed, thus leaving you with 1 job in the `retry` queue and 1 job in your worker's specified queue.
+
+To change this behavior such that jobs in the `retry` queue will cause new attempts to enqueue a job to fail, set the `unique_job_checks_retry_queue` option on an individual worker class:
+
+```ruby
+class ChecksRetryQueueWorker
+  include Sidekiq::Worker
+  sidekiq_options unique: true,
+                  unique_job_checks_retry_queue: true
+
+  ...
+
+end
+```
+
+or set it globally (overridden by the individual class option):
+
+```ruby
+SidekiqUniqueJobs::Config.unique_job_checks_retry_queue = true
+```
+
 ## Contributing
 
 1. Fork it
