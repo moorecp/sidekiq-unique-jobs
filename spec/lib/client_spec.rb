@@ -87,6 +87,51 @@ describe "Client" do
       expect(result).to eq 10
     end
 
+    it 'does not duplicate messages when an existing job is in the retry queue and the option is set' do
+      QueueWorker.sidekiq_options :unique => true, :unique_job_checks_retry_queue => true
+      payload = {
+        :retry => true,
+        :queue => 'customqueue',
+        :unique => 'true',
+        :class => 'QueueWorker',
+        :args => [1, 2]
+      }
+      payload[:unique_hash] = SidekiqUniqueJobs::PayloadHelper.get_payload(payload[:class], payload[:queue], payload[:args])
+      expect(Sidekiq::RetrySet.new.count).to eq(0)
+      Sidekiq.redis {|c| c.zadd('retry', 0, Sidekiq.dump_json(payload))}
+      expect(Sidekiq::RetrySet.new.count).to eq(1)
+      Sidekiq::Client.push('class' => QueueWorker, 'queue' => 'customqueue',  'args' => [1, 2])
+      result = Sidekiq.redis {|c| c.llen("queue:customqueue") }
+      expect(result).to eq 0
+      expect(Sidekiq::RetrySet.new.count).to eq(1)
+    end
+
+    it 'does duplicate messages when an existing job is in the retry queue and the option is set to false' do
+      old_config_value = SidekiqUniqueJobs::Config.unique_job_checks_retry_queue
+      begin
+        SidekiqUniqueJobs::Config.unique_job_checks_retry_queue = true
+
+        QueueWorker.sidekiq_options :unique => true, :unique_job_checks_retry_queue => false
+        payload = {
+          :retry => true,
+          :queue => 'customqueue',
+          :unique => 'true',
+          :class => 'QueueWorker',
+          :args => [1, 2]
+        }
+        payload[:unique_hash] = SidekiqUniqueJobs::PayloadHelper.get_payload(payload[:class], payload[:queue], payload[:args])
+        expect(Sidekiq::RetrySet.new.count).to eq(0)
+        Sidekiq.redis {|c| c.zadd('retry', 0, Sidekiq.dump_json(payload))}
+        expect(Sidekiq::RetrySet.new.count).to eq(1)
+        Sidekiq::Client.push('class' => QueueWorker, 'queue' => 'customqueue',  'args' => [1, 2])
+        result = Sidekiq.redis {|c| c.llen("queue:customqueue") }
+        expect(result).to eq 1
+        expect(Sidekiq::RetrySet.new.count).to eq(1)
+      ensure
+        SidekiqUniqueJobs::Config.unique_job_checks_retry_queue = old_config_value
+      end
+    end
+
     describe 'when unique_args is defined' do
       before { SidekiqUniqueJobs::Config.unique_args_enabled = true }
       after  { SidekiqUniqueJobs::Config.unique_args_enabled = false }

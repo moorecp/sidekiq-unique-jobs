@@ -31,5 +31,13 @@ module SidekiqUniqueJobs
     def self.default_unlock_order
       @default_unlock_order || :after_yield
     end
+
+    def self.unique_job_checks_retry_queue=(enabled)
+      @unique_job_checks_retry_queue = enabled
+    end
+
+    def self.unique_job_checks_retry_queue
+      @unique_job_checks_retry_queue || false
+    end
   end
 end

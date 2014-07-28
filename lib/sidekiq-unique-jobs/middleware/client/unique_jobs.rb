@@ -1,4 +1,5 @@
 require 'digest'
+require 'sidekiq/api'
 
 module SidekiqUniqueJobs
   module Middleware
@@ -55,7 +56,16 @@ module SidekiqUniqueJobs
               conn.setex(payload_hash, expires_at, item['at'] ? 2 : 1)
             end
           end
-          unique
+          unique && !is_retried?
+        end
+
+        def is_retried?
+          return false unless check_retry_queue?
+
+          retries = Sidekiq::RetrySet.new
+          unique_hash = payload_hash
+
+          retries.any? { |job| job['unique_hash'] == unique_hash  }
         end
 
         protected
@@ -95,6 +105,10 @@ module SidekiqUniqueJobs
           worker_class.get_sidekiq_options['unique_job_expiration']
         end
 
+        def check_retry_queue?
+          worker_option = worker_class.get_sidekiq_options['unique_job_checks_retry_queue'] || item['unique_job_checks_retry_queue']
+          !worker_option.nil? ? worker_option : SidekiqUniqueJobs::Config.unique_job_checks_retry_queue
+        end
       end
     end
   end
