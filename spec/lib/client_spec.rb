@@ -94,7 +94,8 @@ describe "Client" do
         :queue => 'customqueue',
         :unique => 'true',
         :class => 'QueueWorker',
-        :args => [1, 2]
+        :args => [1, 2],
+        :jid => 'asdf1234'
       }
       payload[:unique_hash] = SidekiqUniqueJobs::PayloadHelper.get_payload(payload[:class], payload[:queue], payload[:args])
       expect(Sidekiq::RetrySet.new.count).to eq(0)
@@ -104,6 +105,25 @@ describe "Client" do
       result = Sidekiq.redis {|c| c.llen("queue:customqueue") }
       expect(result).to eq 0
       expect(Sidekiq::RetrySet.new.count).to eq(1)
+    end
+
+    it 'allows Sidekiq to enqueue a job from the RetrySet when the unqiue_job_checks_retry_queue option is set' do
+      QueueWorker.sidekiq_options :unique => true, :unique_job_checks_retry_queue => true
+      payload = {
+        'retry' => true,
+        'queue' => 'customqueue',
+        'unique' => 'true',
+        'class' => 'QueueWorker',
+        'args' => [1, 2],
+        'jid' => 'asdf1234'
+      }
+      payload['unique_hash'] = SidekiqUniqueJobs::PayloadHelper.get_payload(payload['class'], payload['queue'], payload['args'])
+      expect(Sidekiq::RetrySet.new.count).to eq(0)
+      Sidekiq.redis {|c| c.zadd('retry', 0, Sidekiq.dump_json(payload))}
+      expect(Sidekiq::RetrySet.new.count).to eq(1)
+      Sidekiq::Client.push(payload)
+      result = Sidekiq.redis {|c| c.llen("queue:customqueue") }
+      expect(result).to eq 1
     end
 
     it 'does duplicate messages when an existing job is in the retry queue and the option is set to false' do

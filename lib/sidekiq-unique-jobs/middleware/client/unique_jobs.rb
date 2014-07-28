@@ -65,7 +65,8 @@ module SidekiqUniqueJobs
           retries = Sidekiq::RetrySet.new
           unique_hash = payload_hash
 
-          retries.any? { |job| job['unique_hash'] == unique_hash  }
+          # We need to let the actual job in the retry queue get enqueued again itself, so we need to also look at the Job ID. If the job id matches, this is Sidekiq trying to enqueue a job from the RetrySet, therefore, we only want to match on jobs with a different 'jid'
+          retries.any? { |job| job['unique_hash'] == unique_hash && job['jid'] != item['jid'] }
         end
 
         protected
