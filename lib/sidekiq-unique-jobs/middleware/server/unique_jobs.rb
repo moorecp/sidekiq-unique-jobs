@@ -48,7 +48,8 @@ module SidekiqUniqueJobs
         protected
 
         def payload_hash(item)
-          SidekiqUniqueJobs::PayloadHelper.get_payload(item['class'], item['queue'], item['args'])
+          payload = SidekiqUniqueJobs::PayloadHelper.get_payload(item['class'], item['queue'], item['args'])
+          item['at'] ? "#{payload}_scheduled" : payload
         end
 
         def unlock(payload_hash)

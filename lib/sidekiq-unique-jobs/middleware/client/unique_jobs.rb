@@ -87,7 +87,8 @@ module SidekiqUniqueJobs
         private
 
         def payload_hash
-          SidekiqUniqueJobs::PayloadHelper.get_payload(item['class'], item['queue'], item['args'])
+          payload = SidekiqUniqueJobs::PayloadHelper.get_payload(item['class'], item['queue'], item['args'])
+          item['at'] ? "#{payload}_scheduled" : payload
         end
 
         # When sidekiq/testing is loaded, the Sidekiq::Testing constant is
